@@ -58,6 +58,8 @@ def wait_for_manual_login(page: Page, check_logged_in, prompt: str, timeout_s: i
         if check_logged_in(page):
             print("[auth] 偵測到已登入，繼續執行。")
             return True
+        if waited % 10 == 0:
+            print(f"[auth][診斷] 目前網址：{page.url}")
         time.sleep(interval)
         waited += interval
     print("[auth] 等待逾時，仍未偵測到登入成功。")

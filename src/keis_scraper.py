@@ -44,8 +44,17 @@ def is_logged_in(page: Page) -> bool:
     try:
         if "login" in page.url.lower():
             return False
-        return page.get_by_text("KEIS凱璿業務系統").first.is_visible(timeout=1000)
-    except Exception:
+        locator = page.locator(".logo-title")
+        found = locator.count()
+        if found == 0:
+            print(f"[keis][診斷] 網址={page.url}，找不到 .logo-title 元素（找到 0 個）")
+            return False
+        visible = locator.first.is_visible(timeout=1000)
+        if not visible:
+            print(f"[keis][診斷] 網址={page.url}，找到 {found} 個 .logo-title 但不可見")
+        return visible
+    except Exception as e:
+        print(f"[keis][診斷] is_logged_in 檢查時發生例外：{e}")
         return False
 
 
