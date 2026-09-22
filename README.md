@@ -1,6 +1,8 @@
 # 591 賣屋自動上架工具
 
-用 Excel 表格或公司內部系統(KEIS)的物件資料，自動幫你把「賣屋」物件填進 591 的刊登表單、上傳照片，並可選擇自動送出。
+登入公司內部系統(KEIS)取得案件資料與照片，自動幫你把「賣屋」物件填進 591 的刊登表單、上傳照片，並可選擇自動送出。也支援 Excel 作為備用資料來源。
+
+不會寫程式、想直接照著步驟操作的話，請看 [SETUP.md](SETUP.md)。
 
 ## 設計上的安全考量（請先讀）
 
@@ -26,7 +28,21 @@ cp .env.example .env
 
 ## 使用方式
 
-### 方式一：Excel 資料來源（不依賴內網，最穩定）
+### 主要方式：從 KEIS 內網系統抓案件資料上架（預設）
+
+**只能在公司電腦（連得到 keis.kshouse.com.tw）執行：**
+
+```bash
+# 乾跑：登入 KEIS → 列出案件讓你選一筆 → 抓資料與照片 → 登入 591 → 填表單，停在確認頁
+python main.py post
+
+# 確認流程與資料都沒問題後，自動送出
+python main.py post --publish
+```
+
+程式會登入 KEIS → 進「案件管理」→ 列出案件清單，讓你輸入編號選要上架的案件（可多選，或輸入 `all`）→ 抓該案件的資料與照片 → 登入 591 → 自動填表單、上傳照片。
+
+### 備用方式：Excel 資料來源（不依賴內網）
 
 ```bash
 # 1. 產生範本
@@ -35,22 +51,12 @@ python main.py template
 # 2. 打開 data/listings_template.xlsx 填入物件資料
 #    photos 欄位放照片的本機路徑，多張用分號 ; 分隔
 
-# 3. 乾跑：填好表單、上傳照片，但不送出，你自己確認
+# 3. 乾跑
 python main.py post --source excel --file data/listings_template.xlsx
 
 # 4. 確認沒問題後，自動送出
 python main.py post --source excel --file data/listings_template.xlsx --publish
 ```
-
-### 方式二：直接從 KEIS 內網系統抓案件資料上架
-
-**只能在公司電腦（連得到 keis.kshouse.com.tw）執行：**
-
-```bash
-python main.py post --source keis --publish
-```
-
-程式會登入 KEIS → 進「案件管理」→ 逐筆抓案件資料與照片 → 自動上架到 591。
 
 ## 目前狀態：選擇器需要你幫忙校正
 

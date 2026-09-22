@@ -70,18 +70,21 @@ def login(page: Page) -> None:
     )
 
 
-def list_case_urls(page: Page) -> list[str]:
-    """Go to 案件管理 and collect the URL of every case row."""
+def list_cases(page: Page) -> list[dict]:
+    """Go to 案件管理 and collect {title, url} for every case row."""
     page.goto(f"{BASE_URL}/dashboard")
     page.click("text=案件管理")
     page.wait_for_load_state("networkidle")
     links = page.locator(SEL_CASE_ROW_LINK).all()
-    urls = []
+    cases = []
     for link in links:
         href = link.get_attribute("href")
-        if href:
-            urls.append(href if href.startswith("http") else f"{BASE_URL}{href}")
-    return urls
+        if not href:
+            continue
+        url = href if href.startswith("http") else f"{BASE_URL}{href}"
+        title = link.inner_text().strip() or url
+        cases.append({"title": title, "url": url})
+    return cases
 
 
 def download_case_photos(page: Page, case_url: str, dest_dir: Path) -> list[str]:
@@ -159,10 +162,42 @@ def scrape_case(page: Page, case_url: str, photo_dir: Path) -> Listing:
     )
 
 
-def fetch_listings(case_urls: list[str] | None = None, headless: bool = False) -> list[Listing]:
-    """Log into KEIS and scrape one or more cases into Listing objects.
+def prompt_case_selection(cases: list[dict]) -> list[dict]:
+    """Print a numbered list of cases and ask which ones to post to 591."""
+    if not cases:
+        print("[keis] 案件管理裡沒有找到任何案件。")
+        return []
 
-    If case_urls is None, scrapes every case found in 案件管理.
+    print("\n在 KEIS 案件管理裡找到以下案件：")
+    for i, case in enumerate(cases, start=1):
+        print(f"  {i}. {case['title']}")
+
+    raw = input(
+        "\n請輸入要上架到 591 的案件編號（例如 1 或 1,3,5），"
+        "或輸入 all 選全部，直接按 Enter 取消：\n> "
+    ).strip()
+
+    if not raw:
+        return []
+    if raw.lower() == "all":
+        return cases
+
+    selected = []
+    for part in raw.split(","):
+        part = part.strip()
+        if not part.isdigit():
+            continue
+        idx = int(part) - 1
+        if 0 <= idx < len(cases):
+            selected.append(cases[idx])
+    return selected
+
+
+def choose_and_fetch_listings(headless: bool = False, chooser=prompt_case_selection) -> list[Listing]:
+    """Log into KEIS, let you pick which case(s) to post, and scrape them.
+
+    `chooser(cases) -> selected_cases` defaults to an interactive CLI
+    prompt so you never accidentally push every case in the system to 591.
     """
     photo_dir = Path(__file__).resolve().parent.parent / "downloads" / "photos"
 
@@ -171,15 +206,21 @@ def fetch_listings(case_urls: list[str] | None = None, headless: bool = False) -
         login(page)
         auth.save_session(context, SESSION_NAME)
 
-        urls = case_urls or list_case_urls(page)
-        print(f"[keis] 找到 {len(urls)} 筆案件，開始抓取...")
+        cases = list_cases(page)
+        selected = chooser(cases)
+        if not selected:
+            print("[keis] 沒有選擇任何案件，結束。")
+            context.close()
+            return []
 
+        print(f"[keis] 已選 {len(selected)} 筆案件，開始抓取資料與照片...")
         listings = []
-        for url in urls:
+        for case in selected:
             try:
-                listings.append(scrape_case(page, url, photo_dir))
+                listings.append(scrape_case(page, case["url"], photo_dir))
+                print(f"[keis] 已抓取：{case['title']}")
             except Exception as e:
-                print(f"[keis] 抓取失敗 {url}: {e}")
+                print(f"[keis] 抓取失敗 {case['title']}: {e}")
 
         context.close()
         return listings

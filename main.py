@@ -1,26 +1,25 @@
 """CLI entry point for 591 自動上架.
 
 Examples:
-  # 1) 先產生 Excel 範本，填好物件資料
+  # 最常用：登入 KEIS，挑一筆案件，抓資料跟照片，填進 591 表單（乾跑，不自動送出）
+  python main.py post
+
+  # 確認表單沒問題後，加 --publish 讓程式自動送出
+  python main.py post --publish
+
+  # 備用：改用 Excel 表格當資料來源（不需要連 KEIS）
   python main.py template
-
-  # 2) 用 Excel 資料，乾跑模式（填好表單但不送出，你自己確認後手動送出）
   python main.py post --source excel --file data/listings.xlsx
-
-  # 3) 確認沒問題後，加 --publish 讓程式自動送出
-  python main.py post --source excel --file data/listings.xlsx --publish
-
-  # 4) 從公司內網 KEIS 系統抓案件資料直接上架（只能在公司電腦跑）
-  python main.py post --source keis --publish
 """
 import argparse
-from pathlib import Path
 
-from src.excel_source import create_template, load_listings
 from src.house591_poster import post_listing
 
 
 def cmd_template(args):
+    from pathlib import Path
+    from src.excel_source import create_template
+
     path = Path(args.file)
     path.parent.mkdir(parents=True, exist_ok=True)
     create_template(path)
@@ -28,17 +27,22 @@ def cmd_template(args):
 
 
 def cmd_post(args):
-    if args.source == "excel":
+    if args.source == "keis":
+        from src.keis_scraper import choose_and_fetch_listings
+        listings = choose_and_fetch_listings(headless=args.headless)
+    elif args.source == "excel":
+        from src.excel_source import load_listings
         if not args.file:
             raise SystemExit("請用 --file 指定 Excel 檔案路徑")
         listings = load_listings(args.file)
-    elif args.source == "keis":
-        from src.keis_scraper import fetch_listings
-        listings = fetch_listings(headless=args.headless)
     else:
         raise SystemExit(f"未知的資料來源: {args.source}")
 
-    print(f"共讀到 {len(listings)} 筆物件。")
+    if not listings:
+        print("沒有物件資料可以上架。")
+        return
+
+    print(f"共 {len(listings)} 筆物件準備上架到 591。")
     for listing in listings:
         post_listing(listing, publish=args.publish, headless=args.headless)
 
@@ -47,12 +51,13 @@ def main():
     parser = argparse.ArgumentParser(description="591 賣屋自動上架工具")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    p_template = sub.add_parser("template", help="產生 Excel 物件資料範本")
+    p_template = sub.add_parser("template", help="（備用）產生 Excel 物件資料範本")
     p_template.add_argument("--file", default="data/listings_template.xlsx")
     p_template.set_defaults(func=cmd_template)
 
     p_post = sub.add_parser("post", help="讀取物件資料並上架到 591")
-    p_post.add_argument("--source", choices=["excel", "keis"], required=True)
+    p_post.add_argument("--source", choices=["keis", "excel"], default="keis",
+                         help="資料來源，預設從 KEIS 內網系統登入抓取")
     p_post.add_argument("--file", help="Excel 檔案路徑（--source excel 時必填）")
     p_post.add_argument("--publish", action="store_true",
                          help="自動點擊最終送出（預設只填表單，停在確認頁）")
