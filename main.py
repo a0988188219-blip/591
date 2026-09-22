@@ -28,8 +28,8 @@ def cmd_template(args):
 
 def cmd_post(args):
     if args.source == "keis":
-        from src.keis_scraper import choose_and_fetch_listings
-        listings = choose_and_fetch_listings(headless=args.headless)
+        from src.keis_scraper import pick_and_scrape_cases
+        listings = pick_and_scrape_cases(headless=args.headless)
     elif args.source == "excel":
         from src.excel_source import load_listings
         if not args.file:

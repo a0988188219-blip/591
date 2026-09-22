@@ -14,8 +14,6 @@ Like keis_scraper.py, the selectors below are best-effort placeholders
 591.com.tw is blocked here). Run with a visible browser, and send me any
 selector that doesn't match so I can fix it.
 """
-import os
-
 from dotenv import load_dotenv
 from playwright.sync_api import Page, sync_playwright
 
@@ -24,14 +22,10 @@ from .models import Listing
 
 load_dotenv()
 
-LOGIN_URL = "https://member.591.com.tw/login"
-POST_SELL_URL = "https://sell.591.com.tw/home/save"  # 賣屋刊登/編輯頁，實際路徑請以你帳號登入後為準
+HOME_URL = "https://www.591.com.tw/"
 SESSION_NAME = "house591"
 
 # --- Selectors: adjust these to match the real page -----------------
-SEL_USERNAME_INPUT = "input[name='account'], input[type='text']"
-SEL_PASSWORD_INPUT = "input[name='password'], input[type='password']"
-SEL_LOGIN_BUTTON = "button[type='submit'], button:has-text('登入')"
 SEL_TITLE_INPUT = "input[name='title']"
 SEL_CITY_SELECT = "select[name='city']"
 SEL_DISTRICT_SELECT = "select[name='district']"
@@ -59,48 +53,16 @@ SEL_FINAL_SUBMIT_BUTTON = "button:has-text('送出刊登'), button:has-text('確
 # ----------------------------------------------------------------------
 
 
-def is_logged_in(page: Page) -> bool:
-    """Logged in = not sitting on a login form and the URL doesn't look
-    like a login page. Checks visibility (not mere DOM presence) of a
-    password field, since some sites keep a hidden login modal in the DOM
-    even after you're logged in."""
-    try:
-        if "login" in page.url.lower():
-            return False
-        pw = page.locator(SEL_PASSWORD_INPUT).first
-        if pw.count() == 0:
-            return True
-        return not pw.is_visible(timeout=500)
-    except Exception:
-        return False
-
-
-def login(page: Page) -> None:
-    page.goto(LOGIN_URL)
-    page.wait_for_timeout(1000)
-    if is_logged_in(page):
-        return
-
-    username = os.getenv("HOUSE591_USERNAME")
-    password = os.getenv("HOUSE591_PASSWORD")
-
-    if username and password:
-        page.fill(SEL_USERNAME_INPUT, username)
-        page.fill(SEL_PASSWORD_INPUT, password)
-        page.click(SEL_LOGIN_BUTTON)
-        page.wait_for_timeout(2000)
-        if is_logged_in(page):
-            return
-        print("[591] 自動登入後仍未偵測到成功登入，可能跳出簡訊或圖形驗證碼，請手動完成。")
-
-    ok = auth.wait_for_manual_login(
-        page,
-        is_logged_in,
-        prompt="請在瀏覽器視窗中手動完成 591 登入（含任何驗證碼/簡訊驗證）。",
-        timeout_s=1800,
+def wait_until_on_post_form(page: Page) -> None:
+    """You log in and navigate to the 刊登賣屋 form yourself; the script
+    just waits for you to say you're ready, then fills in whatever page
+    is currently open. This avoids guessing at login/page detection on a
+    site we can't inspect ahead of time."""
+    input(
+        "\n請在瀏覽器視窗中登入 591（含任何驗證碼/簡訊驗證），"
+        "並手動導覽到「刊登賣屋」的新增/編輯物件表單頁面，"
+        "準備好之後回到這裡按 Enter，程式會開始在目前這頁自動填表..."
     )
-    if not ok:
-        raise RuntimeError("591 登入逾時，請重新執行程式再試一次。")
 
 
 def _select_by_label_or_value(page: Page, selector: str, value: str) -> None:
@@ -116,9 +78,6 @@ def _select_by_label_or_value(page: Page, selector: str, value: str) -> None:
 
 
 def fill_listing_form(page: Page, listing: Listing) -> None:
-    page.goto(POST_SELL_URL)
-    page.wait_for_load_state("networkidle")
-
     page.fill(SEL_TITLE_INPUT, listing.title)
     _select_by_label_or_value(page, SEL_CITY_SELECT, listing.city)
     _select_by_label_or_value(page, SEL_DISTRICT_SELECT, listing.district)
@@ -160,7 +119,8 @@ def post_listing(listing: Listing, publish: bool = False, headless: bool = False
 
     with sync_playwright() as p:
         context, page = auth.open_context(p, SESSION_NAME, headless=headless)
-        login(page)
+        page.goto(HOME_URL)
+        wait_until_on_post_form(page)
         auth.save_session(context, SESSION_NAME)
 
         fill_listing_form(page, listing)
