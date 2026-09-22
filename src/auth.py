@@ -34,6 +34,8 @@ def open_context(playwright, name: str, headless: bool = False) -> tuple[Browser
     else:
         context = browser.new_context()
     page = context.new_page()
+    page.on("framenavigated", lambda frame: print(f"[auth][診斷] 分頁跳轉到：{frame.url}")
+             if frame == page.main_frame else None)
     return context, page
 
 
