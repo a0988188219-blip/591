@@ -59,7 +59,12 @@ def wait_for_manual_login(page: Page, check_logged_in, prompt: str, timeout_s: i
             print("[auth] 偵測到已登入，繼續執行。")
             return True
         if waited % 10 == 0:
-            print(f"[auth][診斷] 目前網址：{page.url}")
+            all_pages = page.context.pages
+            print(f"[auth][診斷] 程式追蹤的分頁網址：{page.url}")
+            print(f"[auth][診斷] 瀏覽器裡總共有 {len(all_pages)} 個分頁，網址分別是：")
+            for i, p in enumerate(all_pages):
+                marker = "← 程式追蹤的就是這個" if p == page else ""
+                print(f"[auth][診斷]   分頁{i+1}：{p.url} {marker}")
         time.sleep(interval)
         waited += interval
     print("[auth] 等待逾時，仍未偵測到登入成功。")
