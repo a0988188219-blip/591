@@ -1,11 +1,8 @@
-"""CLI entry point for 591 自動上架.
+"""CLI entry point for 591 上架小幫手.
 
 Examples:
-  # 最常用：登入 KEIS，挑一筆案件，抓資料跟照片，填進 591 表單（乾跑，不自動送出）
+  # 最常用：登入 KEIS，挑一筆案件，抓資料跟照片，輸出成可複製貼上的清單
   python main.py post
-
-  # 確認表單沒問題後，加 --publish 讓程式自動送出
-  python main.py post --publish
 
   # 備用：改用 Excel 表格當資料來源（不需要連 KEIS）
   python main.py template
@@ -13,7 +10,7 @@ Examples:
 """
 import argparse
 
-from src.house591_poster import post_listing
+from src.house591_poster import output_listing
 
 
 def cmd_template(args):
@@ -42,25 +39,23 @@ def cmd_post(args):
         print("沒有物件資料可以上架。")
         return
 
-    print(f"共 {len(listings)} 筆物件準備上架到 591。")
+    print(f"共 {len(listings)} 筆物件，整理成可複製貼上到 591 的清單。")
     for listing in listings:
-        post_listing(listing, publish=args.publish, headless=args.headless)
+        output_listing(listing)
 
 
 def main():
-    parser = argparse.ArgumentParser(description="591 賣屋自動上架工具")
+    parser = argparse.ArgumentParser(description="591 上架小幫手")
     sub = parser.add_subparsers(dest="command", required=True)
 
     p_template = sub.add_parser("template", help="（備用）產生 Excel 物件資料範本")
     p_template.add_argument("--file", default="data/listings_template.xlsx")
     p_template.set_defaults(func=cmd_template)
 
-    p_post = sub.add_parser("post", help="讀取物件資料並上架到 591")
+    p_post = sub.add_parser("post", help="讀取物件資料，整理成可貼到 591 的清單")
     p_post.add_argument("--source", choices=["keis", "excel"], default="keis",
                          help="資料來源，預設從 KEIS 內網系統登入抓取")
     p_post.add_argument("--file", help="Excel 檔案路徑（--source excel 時必填）")
-    p_post.add_argument("--publish", action="store_true",
-                         help="自動點擊最終送出（預設只填表單，停在確認頁）")
     p_post.add_argument("--headless", action="store_true",
                          help="不顯示瀏覽器視窗（首次使用/需手動登入時不建議開啟）")
     p_post.set_defaults(func=cmd_post)
