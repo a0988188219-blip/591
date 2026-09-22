@@ -3,20 +3,20 @@
 IMPORTANT — this only works when run from a machine on your company
 network / VPN, since keis.kshouse.com.tw is an internal (內網) site.
 
-You drive the browser: log in and navigate to whichever case's 詳情頁
-you want to post, however you normally would (click 案件管理 → 案件查詢
-→ the case). The script doesn't try to detect login state or find case
-links itself — it just waits for you to press Enter in this terminal
-once you're looking at the page you want scraped, then reads whatever
-page is currently open.
-
-The field selectors in scrape_case() are best-effort placeholders based
-on a real screenshot of one case, but will likely need small adjustments
-for other case layouts — if a field comes out empty, tell me and send
-the relevant bit of the page's HTML (right-click the field → 檢查 →
-copy outerHTML) and I'll fix the selector.
+You drive the browser: log in and open the 案件詳情 (CASE STUDY) popup
+for whichever case you want to post, however you normally would (案件
+管理 → 圖片下載 → 詳情). The script waits for you to press Enter once
+that popup is open, then:
+  1. reads every 案件詳情 field directly (label/value pairs are a fixed,
+     consistent layout — confirmed from a real popup's HTML)
+  2. closes the popup
+  3. finds that same case's row in the list (matched by 合約編號) and
+     clicks its 照片 button, which downloads a ZIP of all the photos,
+     then unzips it locally
 """
 import os
+import re
+import zipfile
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -30,91 +30,162 @@ load_dotenv()
 BASE_URL = os.getenv("KEIS_BASE_URL", "https://keis.kshouse.com.tw")
 SESSION_NAME = "keis"
 
-# --- Selectors: adjust these to match the real page -----------------
-SEL_CASE_TITLE = "h1, .case-title"
-SEL_PHOTO_DOWNLOAD_LINK = "a:has-text('下載'), a[href*='/photo']"
-# ----------------------------------------------------------------------
+DEFAULT_CONTACT_NAME = "顏秀珊"
+DEFAULT_CONTACT_PHONE = "0913-335-182"
 
 
-def download_case_photos(page: Page, dest_dir: Path) -> list[str]:
-    """Download every photo attached to the current case detail page."""
+def _read_detail_fields(page: Page) -> dict:
+    """Read every label→value pair in the open 案件詳情 popup."""
+    fields = {}
+    for item in page.locator(".cs-field-item").all():
+        label = item.locator(".cs-field-label").inner_text().strip()
+        try:
+            value = item.locator(".cs-field-value").inner_text().strip()
+        except Exception:
+            value = ""
+        fields[label] = value
+    return fields
+
+
+def _read_highlights(page: Page) -> str:
+    """The 訴求重點 bullet points, joined into one description."""
+    rows = page.locator(".cs-feature-row").all_inner_texts()
+    return "\n".join(r.strip() for r in rows if r.strip())
+
+
+def _clean(s: str) -> str:
+    """KEIS shows '—' for an empty field — treat that as blank."""
+    s = (s or "").strip()
+    return "" if s in ("—", "-", "–") else s
+
+
+def _to_float(s: str, default: float = 0.0) -> float:
+    s = _clean(s)
+    if not s:
+        return default
+    try:
+        return float("".join(c for c in s if c.isdigit() or c == "."))
+    except ValueError:
+        return default
+
+
+def _split_address(addr: str) -> tuple[str, str, str]:
+    """'高雄市鳳山區崗山北街11巷30號' -> ('高雄市', '鳳山區', '崗山北街11巷30號')"""
+    m = re.match(r"^(\S+?[市縣])(\S+?[鄉鎮市區])(.*)$", addr or "")
+    if m:
+        return m.group(1), m.group(2), m.group(3)
+    return "", "", addr or ""
+
+
+def _parse_layout(s: str) -> tuple[int, int, int]:
+    """'3房2廳4衛' -> (3, 2, 4)"""
+    m = re.match(r"(\d+)房(\d+)廳(\d+)衛", s or "")
+    if m:
+        return int(m.group(1)), int(m.group(2)), int(m.group(3))
+    return 0, 0, 0
+
+
+def _parse_floor(s: str) -> tuple[int, int]:
+    """'1～2 樓（共 2 層）' -> (1, 2)　　'8F/15F' -> (8, 15)"""
+    s = s or ""
+    total_match = re.search(r"共\s*(\d+)\s*層", s)
+    total = int(total_match.group(1)) if total_match else 0
+    nums = re.findall(r"\d+", s)
+    floor = int(nums[0]) if nums else 0
+    if not total and len(nums) >= 2:
+        total = int(nums[1])
+    return floor, total
+
+
+def download_case_photos(page: Page, contract_no: str, dest_dir: Path) -> list[str]:
+    """Click the 照片 button for the row matching contract_no, which
+    downloads a ZIP of all photos, then unzip it locally."""
+    if not contract_no:
+        print("[keis] 沒有合約編號，無法找到對應的照片下載按鈕。")
+        return []
+
     dest_dir.mkdir(parents=True, exist_ok=True)
-    saved_paths = []
+    row = page.locator(".table-row").filter(
+        has=page.locator(f"code.contract-code:text-is('{contract_no}')")
+    )
+    photo_button = row.locator("button:has-text('照片')")
 
-    links = page.locator(SEL_PHOTO_DOWNLOAD_LINK).all()
-    for i, link in enumerate(links):
-        with page.expect_download() as dl_info:
-            link.click()
+    try:
+        with page.expect_download(timeout=15000) as dl_info:
+            photo_button.click()
         download = dl_info.value
-        target = dest_dir / (download.suggested_filename or f"photo_{i}.jpg")
-        download.save_as(str(target))
-        saved_paths.append(str(target))
+    except Exception as e:
+        print(f"[keis] 下載照片失敗：{e}")
+        return []
 
-    return saved_paths
+    zip_path = dest_dir / f"{contract_no}.zip"
+    download.save_as(str(zip_path))
+
+    extract_dir = dest_dir / contract_no
+    try:
+        with zipfile.ZipFile(zip_path) as zf:
+            zf.extractall(extract_dir)
+    except zipfile.BadZipFile as e:
+        print(f"[keis] 解壓縮照片失敗：{e}")
+        return []
+    finally:
+        zip_path.unlink(missing_ok=True)
+
+    return [str(p) for p in sorted(extract_dir.rglob("*")) if p.is_file()]
 
 
 def scrape_case(page: Page, photo_dir: Path) -> Listing:
-    """Read whatever case detail page is currently open into a Listing.
+    """Read the currently-open 案件詳情 popup into a Listing, then close
+    it and download that case's photos."""
+    page.wait_for_selector(".cs-overlay", timeout=5000)
+    fields = _read_detail_fields(page)
+    description = _read_highlights(page)
 
-    NOTE: field extraction assumes a simple label→value layout. If a
-    field comes out wrong or empty, send me the page's HTML for that
-    field and I'll swap in an exact selector.
-    """
-    page.wait_for_load_state("networkidle")
+    contract_no = fields.get("合約編號", "")
 
-    def field_text(label: str, default: str = "") -> str:
-        try:
-            row = page.locator(f"text={label}").first
-            value = row.locator("xpath=following-sibling::*[1]").first
-            return value.inner_text(timeout=2000).strip()
-        except Exception:
-            return default
+    page.locator(".cs-btn-close").click()
+    page.wait_for_selector(".cs-overlay", state="hidden", timeout=5000)
 
-    photos = download_case_photos(page, photo_dir)
+    photos = download_case_photos(page, contract_no, photo_dir)
 
-    def to_float(s: str, default: float = 0.0) -> float:
-        try:
-            return float("".join(c for c in s if c.isdigit() or c == "."))
-        except ValueError:
-            return default
+    city, district, address = _split_address(_clean(fields.get("物件座落", "")))
+    rooms, living_rooms, bathrooms = _parse_layout(fields.get("隔局", ""))
+    floor, total_floors = _parse_floor(fields.get("樓層", ""))
 
-    def to_int(s: str, default: int = 0) -> int:
-        try:
-            return int("".join(c for c in s if c.isdigit()) or default)
-        except ValueError:
-            return default
+    land_ping = _to_float(fields.get("地坪", "")) or _to_float(fields.get("土地總坪數(整筆)", "")) or None
 
     return Listing(
-        title=field_text("案名") or page.locator(SEL_CASE_TITLE).first.inner_text(),
-        city=field_text("縣市"),
-        district=field_text("行政區"),
-        address=field_text("地址"),
-        house_type=field_text("型態"),
-        total_price_wan=to_float(field_text("總價")),
-        main_building_ping=to_float(field_text("主建物坪數")),
-        total_ping=to_float(field_text("權狀坪數")),
-        land_ping=to_float(field_text("土地坪數")) or None,
-        rooms=to_int(field_text("房")),
-        living_rooms=to_int(field_text("廳")),
-        bathrooms=to_int(field_text("衛")),
-        floor=to_int(field_text("樓層")),
-        total_floors=to_int(field_text("總樓層")),
-        age_years=to_float(field_text("屋齡")),
-        parking=field_text("車位"),
-        facing=field_text("座向"),
-        description=field_text("物件描述"),
-        contact_name=field_text("聯絡人") or "顏秀珊",
-        contact_phone=field_text("聯絡電話") or "0913-335-182",
+        title=fields.get("案名", ""),
+        city=city,
+        district=district,
+        address=address,
+        house_type=re.sub(r"^[A-Za-z]\.", "", _clean(fields.get("建築型態", ""))),
+        total_price_wan=_to_float(fields.get("總價款", "")),
+        main_building_ping=_to_float(fields.get("主建物面積", "")),
+        total_ping=_to_float(fields.get("登記面積(含車位)", "")) or _to_float(fields.get("建物面積", "")),
+        land_ping=land_ping,
+        rooms=rooms,
+        living_rooms=living_rooms,
+        bathrooms=bathrooms,
+        floor=floor,
+        total_floors=total_floors,
+        age_years=_to_float(fields.get("屋齡", "")),
+        parking=_clean(fields.get("車位類型", "")),
+        facing=_clean(fields.get("朝向（落地窗／住家門）", "")),
+        description=description,
+        contact_name=DEFAULT_CONTACT_NAME,
+        contact_phone=DEFAULT_CONTACT_PHONE,
         photos=photos,
+        extra={"合約編號": contract_no},
     )
 
 
 def pick_and_scrape_cases(headless: bool = False) -> list[Listing]:
     """Open KEIS and let you manually drive to each case you want to post.
 
-    You log in and click through to a case's 詳情頁 yourself; the script
-    waits for you to press Enter here, then scrapes whatever page is
-    currently open. Repeat for as many cases as you want in one run.
+    You log in and open a case's 案件詳情 popup yourself; the script waits
+    for you to press Enter here, then scrapes it and downloads its photos.
+    Repeat for as many cases as you want in one run.
     """
     photo_dir = Path(__file__).resolve().parent.parent / "downloads" / "photos"
     listings = []
@@ -126,7 +197,7 @@ def pick_and_scrape_cases(headless: bool = False) -> list[Listing]:
         while True:
             input(
                 "\n請在瀏覽器視窗中登入 KEIS（如果還沒登入），"
-                "在「案件管理 → 圖片下載」頁面點到你要上架那筆案件的「詳情」，"
+                "在「案件管理 → 圖片下載」頁面點開你要上架那筆案件的「詳情」彈窗，"
                 "準備好之後回到這裡按 Enter 繼續..."
             )
             try:
