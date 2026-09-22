@@ -71,9 +71,8 @@ def login(page: Page) -> None:
 
 
 def list_cases(page: Page) -> list[dict]:
-    """Go to 案件管理 and collect {title, url} for every case row."""
-    page.goto(f"{BASE_URL}/dashboard")
-    page.click("text=案件管理")
+    """Go to 案件查詢 (體系案件列表) and collect {title, url} for every case row."""
+    page.goto(f"{BASE_URL}/case")
     page.wait_for_load_state("networkidle")
     links = page.locator(SEL_CASE_ROW_LINK).all()
     cases = []
