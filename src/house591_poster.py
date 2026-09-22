@@ -60,12 +60,17 @@ SEL_FINAL_SUBMIT_BUTTON = "button:has-text('送出刊登'), button:has-text('確
 
 
 def is_logged_in(page: Page) -> bool:
-    """Logged in = not sitting on a login form (no visible password field)
-    and the URL doesn't look like a login page."""
+    """Logged in = not sitting on a login form and the URL doesn't look
+    like a login page. Checks visibility (not mere DOM presence) of a
+    password field, since some sites keep a hidden login modal in the DOM
+    even after you're logged in."""
     try:
         if "login" in page.url.lower():
             return False
-        return page.locator(SEL_PASSWORD_INPUT).count() == 0
+        pw = page.locator(SEL_PASSWORD_INPUT).first
+        if pw.count() == 0:
+            return True
+        return not pw.is_visible(timeout=500)
     except Exception:
         return False
 

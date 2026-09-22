@@ -39,12 +39,12 @@ SEL_PHOTO_DOWNLOAD_LINK = "a:has-text('下載'), a[href*='/photo']"
 
 
 def is_logged_in(page: Page) -> bool:
-    """Logged in = not sitting on a login form (no visible password field)
-    and the URL doesn't look like a login page."""
+    """Logged in = the KEIS nav bar title is visible (confirmed from a real
+    screenshot of the logged-in dashboard) and the URL isn't a login page."""
     try:
         if "login" in page.url.lower():
             return False
-        return page.locator(SEL_PASSWORD_INPUT).count() == 0
+        return page.get_by_text("KEIS凱璿業務系統").first.is_visible(timeout=1000)
     except Exception:
         return False
 
