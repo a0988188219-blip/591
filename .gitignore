@@ -1,0 +1,19 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Credentials — never commit
+.env
+
+# Playwright login sessions (contain live cookies)
+.auth/
+
+# Runtime output
+screenshots/
+downloads/
+*.log
+
+# Working data files (may contain real customer/property info)
+data/*.xlsx
+!data/listings_template.xlsx
