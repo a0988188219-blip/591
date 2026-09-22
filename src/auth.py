@@ -67,6 +67,12 @@ def wait_for_manual_login(page: Page, check_logged_in, prompt: str, timeout_s: i
             for i, p in enumerate(all_pages):
                 marker = "← 程式追蹤的就是這個" if p == page else ""
                 print(f"[auth][診斷]   分頁{i+1}：{p.url} {marker}")
+            debug_path = AUTH_DIR / "debug_screenshot.png"
+            try:
+                page.screenshot(path=str(debug_path))
+                print(f"[auth][診斷] 已把程式現在看到的畫面存成截圖：{debug_path}")
+            except Exception as e:
+                print(f"[auth][診斷] 存截圖失敗：{e}")
         time.sleep(interval)
         waited += interval
     print("[auth] 等待逾時，仍未偵測到登入成功。")
