@@ -31,8 +31,7 @@ SESSION_NAME = "keis"
 SEL_USERNAME_INPUT = "input[name='username'], input[name='account'], input[type='text']"
 SEL_PASSWORD_INPUT = "input[name='password'], input[type='password']"
 SEL_LOGIN_BUTTON = "button[type='submit'], button:has-text('登入')"
-SEL_LOGGED_IN_MARKER = "text=登出, text=案件管理"  # something only visible after login
-SEL_CASE_ROW_LINK = "a[href*='/case/']"  # a row/link in the 案件管理 list
+SEL_CASE_ROW_LINK = "a[href*='/case/']"  # a row/link in the 案件查詢 list
 SEL_CASE_TITLE = "h1, .case-title"
 SEL_CASE_FIELD_TABLE = "table, dl"  # detail fields are often in a table or <dl>
 SEL_PHOTO_DOWNLOAD_LINK = "a:has-text('下載'), a[href*='/photo']"
@@ -40,14 +39,19 @@ SEL_PHOTO_DOWNLOAD_LINK = "a:has-text('下載'), a[href*='/photo']"
 
 
 def is_logged_in(page: Page) -> bool:
+    """Logged in = not sitting on a login form (no visible password field)
+    and the URL doesn't look like a login page."""
     try:
-        return page.locator(SEL_LOGGED_IN_MARKER).first.is_visible(timeout=1000)
+        if "login" in page.url.lower():
+            return False
+        return page.locator(SEL_PASSWORD_INPUT).count() == 0
     except Exception:
         return False
 
 
 def login(page: Page) -> None:
     page.goto(BASE_URL)
+    page.wait_for_timeout(1000)
     if is_logged_in(page):
         return
 
@@ -63,11 +67,14 @@ def login(page: Page) -> None:
             return
         print("[keis] 自動登入後仍未偵測到成功登入，請手動完成（可能跳出驗證步驟）。")
 
-    auth.wait_for_manual_login(
+    ok = auth.wait_for_manual_login(
         page,
         is_logged_in,
         prompt="請在瀏覽器視窗中手動登入 KEIS 內部系統。",
+        timeout_s=1800,
     )
+    if not ok:
+        raise RuntimeError("KEIS 登入逾時，請重新執行程式再試一次。")
 
 
 def list_cases(page: Page) -> list[dict]:

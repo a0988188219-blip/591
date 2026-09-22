@@ -32,8 +32,6 @@ SESSION_NAME = "house591"
 SEL_USERNAME_INPUT = "input[name='account'], input[type='text']"
 SEL_PASSWORD_INPUT = "input[name='password'], input[type='password']"
 SEL_LOGIN_BUTTON = "button[type='submit'], button:has-text('登入')"
-SEL_LOGGED_IN_MARKER = "text=會員專區, text=登出"
-
 SEL_TITLE_INPUT = "input[name='title']"
 SEL_CITY_SELECT = "select[name='city']"
 SEL_DISTRICT_SELECT = "select[name='district']"
@@ -62,14 +60,19 @@ SEL_FINAL_SUBMIT_BUTTON = "button:has-text('送出刊登'), button:has-text('確
 
 
 def is_logged_in(page: Page) -> bool:
+    """Logged in = not sitting on a login form (no visible password field)
+    and the URL doesn't look like a login page."""
     try:
-        return page.locator(SEL_LOGGED_IN_MARKER).first.is_visible(timeout=1000)
+        if "login" in page.url.lower():
+            return False
+        return page.locator(SEL_PASSWORD_INPUT).count() == 0
     except Exception:
         return False
 
 
 def login(page: Page) -> None:
     page.goto(LOGIN_URL)
+    page.wait_for_timeout(1000)
     if is_logged_in(page):
         return
 
@@ -85,11 +88,14 @@ def login(page: Page) -> None:
             return
         print("[591] 自動登入後仍未偵測到成功登入，可能跳出簡訊或圖形驗證碼，請手動完成。")
 
-    auth.wait_for_manual_login(
+    ok = auth.wait_for_manual_login(
         page,
         is_logged_in,
         prompt="請在瀏覽器視窗中手動完成 591 登入（含任何驗證碼/簡訊驗證）。",
+        timeout_s=1800,
     )
+    if not ok:
+        raise RuntimeError("591 登入逾時，請重新執行程式再試一次。")
 
 
 def _select_by_label_or_value(page: Page, selector: str, value: str) -> None:
